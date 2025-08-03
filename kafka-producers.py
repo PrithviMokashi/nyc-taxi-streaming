@@ -1,9 +1,20 @@
+from datetime import datetime
 import time
 import os
+import json
 from kafka import KafkaProducer
 import pandas as pd
 
-producer = KafkaProducer(bootstrap_servers='localhost:9092', value_serializer=lambda v: str(v).encode('utf-8'))
+
+def json_serializer(obj):
+    if isinstance(obj, pd.Timestamp):
+        return obj.isoformat()  # or obj.strftime('%Y-%m-%d %H:%M:%S')
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    return obj
+
+
+producer = KafkaProducer(bootstrap_servers='localhost:9092', value_serializer=lambda v: json.dumps(dict(v), default=json_serializer).encode('utf-8'))
 
 df = pd.read_parquet(os.path.join(os.getcwd(),'datasets/yellow_tripdata_2025-01.parquet'))
 
