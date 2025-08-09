@@ -6,8 +6,11 @@ from constants import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC_NAME
 
 spark = SparkSession.builder \
     .appName("KafkaTaxiStreamConsumer") \
-    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0") \
-    .config("spark.hadoop.io.native.lib.available", "false") \
+    .config("spark.jars.packages",
+            "org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0,"
+            "io.delta:delta-spark_2.13:4.0.0") \
+    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
     .getOrCreate()
 
 taxi_schema = StructType([
@@ -48,13 +51,17 @@ kafka_df = kafka_raw.selectExpr("CAST(value AS STRING)") \
     .withColumn("tpep_pickup_datetime", 
                 to_timestamp(col("tpep_pickup_datetime"), "yyyy-MM-dd'T'HH:mm:ss")) \
     .withColumn("tpep_dropoff_datetime", 
-                to_timestamp(col("tpep_dropoff_datetime"), "yyyy-MM-dd'T'HH:mm:ss"))
+                to_timestamp(col("tpep_dropoff_datetime"), "yyyy-MM-dd'T'HH:mm:ss")) \
+    .withColumn("pickup_date", col("tpep_pickup_datetime").cast("date"))
 
 query = kafka_df.writeStream \
-    .format("parquet") \
-    .option("path", "data/nyc_trips/") \
-    .option("checkpointLocation", "data/nyc_trips/_checkpoint/") \
-    .trigger(processingTime="30 seconds") \
+    .format("delta") \
+    .option("path", "data_lake/bronze/nyc_trips/") \
+    .option("checkpointLocation", "data_lake/bronze/nyc_trips/_checkpoint/") \
+    .option("delta.autoOptimize.optimizeWrite", "true") \
+    .option("delta.autoOptimize.autoCompact", "true") \
+    .option("startingOffsets", "latest") \
+    .partitionBy("pickup_date") \
     .outputMode("append") \
     .start()
 
